@@ -148,7 +148,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
     case WStype_BIN:
       Serial.printf("[%u] get binary length: %u\r\n", num, length);
       hexdump(payload, length);
-      
+
       // echo data back to browser
       webSocket.sendBIN(num, payload, length);
       break;
@@ -158,6 +158,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   }
 }
 
+//Чтение из мультиплекссора
 int readMux(int channel) {
   int controlPin[] = {S0, S1, S2, S3};
 
@@ -204,14 +205,14 @@ void writeRelePins() {
 }
 
 void toggleRelePin(int id) {
-  
+
   byte b = bitRead(ReleStatus, id);
   if (b == 0) {
     bitWrite(ReleStatus, id, HIGH);
   } else {
     bitWrite(ReleStatus, id, LOW);
   }
-  
+
   writeRelePins();
   sendChangesReleStatusToClients(id, b);
 }
@@ -242,20 +243,18 @@ void processKey(int id, int val) {
 
 //Обработка сигнала терморезистора
 void processTemp(int val) {
-  //todo с терморезисторасы по Цельсию
-//  float average = val;
-//  // конвертируем значение в сопротивление
-//  average = 1023 / average - 1;
-//  average = SERIESRESISTOR / average;
-//  float steinhart;
-//  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
-//  steinhart = log(steinhart); // ln(R/Ro)
-//  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
-//  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
-//  steinhart = 1.0 / steinhart; // инвертируем
-//  steinhart -= 273.15; // конвертируем в градусы по Цельсию
-//  Temp1Status = steinhart;
-    Temp1Status++;
+  float average = val;
+  // конвертируем значение в сопротивление
+  average = 1023 / average - 1;
+  average = SERIESRESISTOR / average;
+  float steinhart;
+  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
+  steinhart = log(steinhart); // ln(R/Ro)
+  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
+  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
+  steinhart = 1.0 / steinhart; // инвертируем
+  steinhart -= 273.15; // конвертируем в градусы по Цельсию
+  Temp1Status = steinhart;
 }
 
 //Обработка сигнала датчика уровня
@@ -334,6 +333,42 @@ void waitForConnect()
   }
 }
 
+void setupSTA() {
+  WiFi.mode(WIFI_STA);
+
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  if (mdns.begin("espWebSock", WiFi.localIP())) {
+    Serial.println("MDNS responder started");
+    mdns.addService("http", "tcp", 80);
+    mdns.addService("ws", "tcp", 81);
+  }
+  else {
+    Serial.println("MDNS.begin failed");
+  }
+  Serial.print("Connect to http://");
+  Serial.println(WiFi.localIP());
+}
+
+void setup_AP_STA() {
+  WiFi.mode(WIFI_AP_STA);
+  Serial.println();
+  Serial.print("Setting soft-AP ... ");
+  boolean result = WiFi.softAP("ESP_Alekseyld", "123456789");
+  if (result == true)
+  {
+    Serial.println("Ready");
+  }
+  else
+  {
+    Serial.println("Failed!");
+  }
+}
+
 void setup()
 {
   setupPins();
@@ -352,42 +387,13 @@ void setup()
   waitForConnect();
 
   if (isWifiConnected) {
-    WiFi.mode(WIFI_STA);
-    
-    Serial.println("");
-    Serial.print("Connected to ");
-    Serial.println(ssid);
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-
-    if (mdns.begin("espWebSock", WiFi.localIP())) {
-      Serial.println("MDNS responder started");
-      mdns.addService("http", "tcp", 80);
-      mdns.addService("ws", "tcp", 81);
-    }
-    else {
-      Serial.println("MDNS.begin failed");
-    }
-    Serial.print("Connect to http://");
-    Serial.println(WiFi.localIP());
+    setupSTA();
   } else {
-    WiFi.mode(WIFI_AP_STA);
-    Serial.println();
-    Serial.print("Setting soft-AP ... ");
-    boolean result = WiFi.softAP("ESP_Alekseyld", "123456789");
-    if(result == true)
-    {
-      Serial.println("Ready");
-    }
-    else
-    {
-      Serial.println("Failed!");
-    }
+    setup_AP_STA();
   }
 
   server.on("/", handleRoot);
   server.onNotFound(handleNotFound);
-
   server.begin();
 
   webSocket.begin();
@@ -401,7 +407,7 @@ void loop() {
   server.handleClient();
 
   if (millis() - lastmillis > 300) {
-      lastmillis = millis();
-      monitorPins();
+    lastmillis = millis();
+    monitorPins();
   }
 }
