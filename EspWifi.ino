@@ -8,11 +8,6 @@
 
 #include "HtmlPage.h"
 
-// Название Wifi и пароль к нему
-
-static const char ssid[]     = "TP-LINK_FC7E74";//"TP-LINK_FC7E74"
-static const char password[] = "26911908"; //"26911908"
-
 void toggleRelePin(int);
 
 MDNSResponder mdns;
@@ -51,6 +46,11 @@ const int S1 = 5;
 const int S2 = 4;
 const int S3 = 12;
 const int SIG = 17;
+
+// Название Wifi и пароль к нему
+static const char ssid[]     = "TP-LINK_FC7E74";//"TP-LINK_FC7E74"
+static const char password[] = "26911908"; //"26911908"
+bool isWifiConnected = true;
 
 void sendChangesReleStatusToClient(int num, int id, byte s) {
   id = id - 1;
@@ -243,18 +243,19 @@ void processKey(int id, int val) {
 //Обработка сигнала терморезистора
 void processTemp(int val) {
   //todo с терморезисторасы по Цельсию
-  float average = val;
-  // конвертируем значение в сопротивление
-  average = 1023 / average - 1;
-  average = SERIESRESISTOR / average;
-  float steinhart;
-  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
-  steinhart = log(steinhart); // ln(R/Ro)
-  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
-  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
-  steinhart = 1.0 / steinhart; // инвертируем
-  steinhart -= 273.15; // конвертируем в градусы по Цельсию
-  Temp1Status = steinhart;
+//  float average = val;
+//  // конвертируем значение в сопротивление
+//  average = 1023 / average - 1;
+//  average = SERIESRESISTOR / average;
+//  float steinhart;
+//  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
+//  steinhart = log(steinhart); // ln(R/Ro)
+//  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
+//  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
+//  steinhart = 1.0 / steinhart; // инвертируем
+//  steinhart -= 273.15; // конвертируем в градусы по Цельсию
+//  Temp1Status = steinhart;
+    Temp1Status++;
 }
 
 //Обработка сигнала датчика уровня
@@ -311,7 +312,8 @@ void waitForConnect()
   while (WiFiMulti.run() != WL_CONNECTED) {
     Serial.print(".");
     delay(100);
-    if (millis() - milli > 10000) {
+    if (millis() - milli > 30000) {
+      isWifiConnected = false;
       break;
     }
 
@@ -349,7 +351,7 @@ void setup()
 
   waitForConnect();
 
-  if (WiFiMulti.run() != WL_CONNECTED) {
+  if (isWifiConnected) {
     WiFi.mode(WIFI_STA);
     
     Serial.println("");
@@ -369,9 +371,18 @@ void setup()
     Serial.print("Connect to http://");
     Serial.println(WiFi.localIP());
   } else {
-    WiFi.mode(WIFI_AP);
-    
-    WiFi.softAP("ESP_Alekseyld", "123456789");
+    WiFi.mode(WIFI_AP_STA);
+    Serial.println();
+    Serial.print("Setting soft-AP ... ");
+    boolean result = WiFi.softAP("ESP_Alekseyld", "123456789");
+    if(result == true)
+    {
+      Serial.println("Ready");
+    }
+    else
+    {
+      Serial.println("Failed!");
+    }
   }
 
   server.on("/", handleRoot);
