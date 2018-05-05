@@ -350,6 +350,8 @@ void setup()
   waitForConnect();
 
   if (WiFiMulti.run() != WL_CONNECTED) {
+    WiFi.mode(WIFI_STA);
+    
     Serial.println("");
     Serial.print("Connected to ");
     Serial.println(ssid);
@@ -367,7 +369,9 @@ void setup()
     Serial.print("Connect to http://");
     Serial.println(WiFi.localIP());
   } else {
-
+    WiFi.mode(WIFI_AP);
+    
+    WiFi.softAP("ESP_Alekseyld", "123456789");
   }
 
   server.on("/", handleRoot);
@@ -385,8 +389,8 @@ void loop() {
   webSocket.loop();
   server.handleClient();
 
-  //if (millis() - lastmillis > 300) {
-  //    lastmillis = millis();
-  //    monitorPins();
-  //}
+  if (millis() - lastmillis > 300) {
+      lastmillis = millis();
+      monitorPins();
+  }
 }
