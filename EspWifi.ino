@@ -8,8 +8,8 @@
 
 // Название Wifi и пароль к нему
 
-static const char ssid[]     = "TP-LINK_FC7E74";//""  //"Network_DLA"
-static const char password[] = "26911908"; //"26911908"        //"8001147879"
+static const char ssid[]     = "TP-LINK_FC7E74";//"TP-LINK_FC7E74"
+static const char password[] = "26911908"; //"26911908"
 MDNSResponder mdns;
 
 void toggleRelePin(int);
@@ -382,7 +382,7 @@ void sendUpdatesToClients() {
 
 void processKey(int id, int val) {
   id = id + 1;
-  if (val > 300) {
+  if (val > 500) {
     bitWrite(KeyStatus, id, HIGH);
     bitWrite(ReleStatus, id, HIGH);
     sendChangesReleStatusToClients(id, LOW);
@@ -395,10 +395,30 @@ void processKey(int id, int val) {
   }
 }
 
+// сопротивление при 25 градусах по Цельсию
+#define THERMISTORNOMINAL 10000
+// temp. для номинального сопротивления (практически всегда равна 25 C)
+#define TEMPERATURENOMINAL 25
+// бета коэффициент термистора (обычно 3000-4000)
+#define BCOEFFICIENT 3950
+// сопротивление второго резистора
+#define SERIESRESISTOR 10000
+
 //Обработка сигнала терморезистора
 void processTemp(int val) {
-  //todo с терморезистора
-  Temp1Status = val;
+  //todo с терморезисторасы по Цельсию
+  float average = val;
+  // конвертируем значение в сопротивление
+  average = 1023 / average - 1;
+  average = SERIESRESISTOR / average;
+  float steinhart;
+  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
+  steinhart = log(steinhart); // ln(R/Ro)
+  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
+  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
+  steinhart = 1.0 / steinhart; // инвертируем
+  steinhart -= 273.15; // конвертируем в градусы по Цельсию
+  Temp1Status = steinhart;
 }
 
 //Обработка сигнала датчика уровня
@@ -463,27 +483,53 @@ void setup()
 
   WiFiMulti.addAP(ssid, password);
 
+  bool isLoginGet = false;
+  String ssid1;
+  long milli = millis();
   while(WiFiMulti.run() != WL_CONNECTED) {
     Serial.print(".");
     delay(100);
+    if (millis() - milli > 10000) {
+      break;
+    }
+
+    while(Serial.available()) {
+      String a = Serial.readString();
+      if (!isLoginGet) {
+        ssid1 = a;
+        isLoginGet = true;
+      } else { 
+        char ssidChar[40];
+        char passwordChar[40];
+        ssid1.toCharArray(ssidChar, 40);
+        a.toCharArray(passwordChar, 40);
+        
+        WiFiMulti.addAP(ssidChar, passwordChar);
+      }
   }
 
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  if (WiFiMulti.run() != WL_CONNECTED) {
+      Serial.println("");
+      Serial.print("Connected to ");
+      Serial.println(ssid);
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
 
-  if (mdns.begin("espWebSock", WiFi.localIP())) {
-    Serial.println("MDNS responder started");
-    mdns.addService("http", "tcp", 80);
-    mdns.addService("ws", "tcp", 81);
-  }
+    if (mdns.begin("espWebSock", WiFi.localIP())) {
+        Serial.println("MDNS responder started");
+        mdns.addService("http", "tcp", 80);
+        mdns.addService("ws", "tcp", 81);
+      }
   else {
     Serial.println("MDNS.begin failed");
   }
   Serial.print("Connect to http://");
   Serial.println(WiFi.localIP());
+  } else {
+    
+  }
+
+
 
   server.on("/", handleRoot);
   server.onNotFound(handleNotFound);
