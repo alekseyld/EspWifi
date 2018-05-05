@@ -15,9 +15,7 @@ td{text-align: center;}
 .on_td{color: white; background: green;}
 </style>
 <script>
-var ids = ['pump', 'snakefan', 'vapofan', 'meshalka', 'light'];
-var temps = ['temp1'];
-var height = ['height'];
+var ids = ['light', 'pump', 'compressor', 'oilspill'];
 var websock;
 function start() {
   websock = new WebSocket('ws://' + window.location.hostname + ':81/');
@@ -35,13 +33,7 @@ function start() {
       } else {
         e.className = "off_td";
         e.textContent = "Отключено";
-    }
-    } else if (Number.isInteger(parseInt(data[1]))) {
-      var e = document.getElementById(temps[data[0]] + '_c');
-      e.textContent = data[1];
-    } else {
-      var e = document.getElementById(height[data[0]] + '_c');
-      e.textContent = data[1];
+      }
     }
   };
 }
@@ -65,45 +57,24 @@ function buttonclick(e) {
     <th>Состояние</th>
   </tr>
   <tr>
-    <td>Насос</td>
-      <td><button id="pump" type="button" onclick="buttonclick(this);">Включить</button></td>
-      <td id="pump_c" class="off_td">Отключено</td>
-  </tr>
-  <tr>
-      <td>Вентилятор змеевик</td>
-    <td><button id="snakefan" type="button" onclick="buttonclick(this);">Включить</button></td>
-      <td id="snakefan_c" class="off_td">Отключено</td>
-  </tr>
-  <tr>
-      <td>Вентилятор испаритель</td>
-    <td><button id="vapofan" type="button" onclick="buttonclick(this);">Включить</button></td>
-      <td id="vapofan_c" class="off_td">Отключено</td>
-  </tr>
-  <tr>
-      <td>Мешалка</td>
-    <td><button id="meshalka" type="button" onclick="buttonclick(this);">Включить</button></td>
-      <td id="meshalka_c" class="off_td">Отключено</td>
-  </tr>
-  <tr>
     <td>Подсветка</td>
       <td><button id="light" type="button" onclick="buttonclick(this);">Включить</button></td>
       <td id="light_c" class="off_td">Отключено</td>
   </tr>
-</table>
-<br>
-<table border="1" width="50%" cellpadding="5">
-  <caption><b>Данные датчиков</b></caption>
   <tr>
-    <th>Название узла</th>
-    <th>Значение</th>
+      <td>Насос</td>
+    <td><button id="pump" type="button" onclick="buttonclick(this);">Включить</button></td>
+      <td id="pump_c" class="off_td">Отключено</td>
   </tr>
   <tr>
-      <td>Температура 1</td>
-      <td id="temp1_c">25 С</td>
+      <td>Компрессор</td>
+    <td><button id="compressor" type="button" onclick="buttonclick(this);">Включить</button></td>
+      <td id="compressor_c" class="off_td">Отключено</td>
   </tr>
   <tr>
-      <td>Датчик уровня 1</td>
-      <td id="height_c">Достигнут</td>
+      <td>Качалка</td>
+    <td><button id="oilspill" type="button" onclick="buttonclick(this);">Включить</button></td>
+      <td id="oilspill_c" class="off_td">Отключено</td>
   </tr>
 </table>
 </body>

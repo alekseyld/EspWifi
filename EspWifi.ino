@@ -8,44 +8,26 @@
 
 #include "HtmlPage.h"
 
-void toggleRelePin(int);
-
 MDNSResponder mdns;
 ESP8266WiFiMulti WiFiMulti;
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 // Состояние реле
-// 0 - PumpStatus;
-// 1 - SnakefunStatus;
-// 2 - VapofanStatus;
-// 3 - MeshalkaStatus;
-// 4 - LightStatus;
-byte ReleStatus = 0;
+// 0 - Light;
+// 1 - Pump;
+// 2 - Compressor;
+// 3 - Oilspill;
+bool releStatus[4];
 
-// Состояния тумблеров
-// 0 - PumpKeyStatus;
-// 1 - SnakefunKeyStatus;
-// 2 - VapofanKeyStatus;
-// 3 - MeshalkaKeyStatus;
-// 4 - LightStatus;
-byte KeyStatus;
+bool lightKeyStatus = false;
 
-// Состояние датчиков температуры
-int Temp1Status;
-// Состояние датчиков уровня
-bool HeightStatus;
+const int lightPin = 16;
+const int pumpPin = 5;
+const int oilpillPin = 4;
+const int compressorPin = 14;
 
-//Pins
-int latchPin = 15; // pin D8 on NodeMCU boards
-int clockPin = 14; // pin D5 on NodeMCU boards
-int dataPin = 13; // pin D7 on NodeMCU boards
-
-const int S0 = 16;
-const int S1 = 5;
-const int S2 = 4;
-const int S3 = 12;
-const int SIG = 17;
+const int keyPin = 17;
 
 // Название Wifi и пароль к нему
 static const char ssid[]     = "TP-LINK_FC7E74";//"TP-LINK_FC7E74"
@@ -53,7 +35,7 @@ static const char password[] = "26911908"; //"26911908"
 bool isWifiConnected = true;
 
 void sendChangesReleStatusToClient(int num, int id, byte s) {
-  id = id - 1;
+  id = id;
   char myConcatenation[10];
   if (s) {
     char mes[] = "on";
@@ -66,37 +48,18 @@ void sendChangesReleStatusToClient(int num, int id, byte s) {
 }
 
 void sendChangesReleStatusToClients(int id, byte s) {
-  id = id - 1;
+  id = id;
   char myConcatenation[10];
   if (s) {
-    char mes[] = "off";
+    char mes[] = "on";
     sprintf(myConcatenation, "%i %s", id, mes);
 
   } else {
-    char mes[] = "on";
+    char mes[] = "off";
     sprintf(myConcatenation, "%i %s", id, mes);
   }
   webSocket.broadcastTXT(myConcatenation, strlen(myConcatenation));
 }
-
-void sendUpdatesToClients() {
-  char tempMes[10];
-  sprintf(tempMes, "0 %d", Temp1Status);
-  webSocket.broadcastTXT(tempMes, strlen(tempMes));
-
-  //Отправка показаний датчика уровня
-  char heightMes[20];
-  if (HeightStatus) {
-    char mes[] = "Достигнут";
-    sprintf(heightMes, "0 %s", mes);
-
-  } else {
-    char mes[] = "Не_достигнут";
-    sprintf(heightMes, "0 %s", mes);
-  }
-  webSocket.broadcastTXT(heightMes, strlen(heightMes));
-}
-
 
 void handleRoot()
 {
@@ -131,8 +94,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
         IPAddress ip = webSocket.remoteIP(num);
         Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\r\n", num, ip[0], ip[1], ip[2], ip[3], payload);
         // Отправка первичных данных только что подключенному клиенту
-        for (int i = 1; i < 6; i++) {
-          sendChangesReleStatusToClient(num, i, bitRead(ReleStatus, i));
+        for (int i = 1; i < 4; i++) {
+          sendChangesReleStatusToClient(num, i, releStatus[i]);
         }
       }
       break;
@@ -140,7 +103,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       // Обработка запроса от клиента
       Serial.printf("[%u] get Text: %s\r\n", num, payload);
 
-      toggleRelePin(atoi((const char *)payload) + 1);
+      toggleRelePin(atoi((const char *)payload));
 
       //      // send data to all connected clients
       //      webSocket.broadcastTXT(payload, length);
@@ -158,151 +121,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   }
 }
 
-//Чтение из мультиплекссора
-int readMux(int channel) {
-  int controlPin[] = {S0, S1, S2, S3};
-
-  int muxChannel[16][4] = {
-    {0, 0, 0, 0}, //channel 0
-    {1, 0, 0, 0}, //channel 1
-    {0, 1, 0, 0}, //channel 2
-    {1, 1, 0, 0}, //channel 3
-    {0, 0, 1, 0}, //channel 4
-    {1, 0, 1, 0}, //channel 5
-    {0, 1, 1, 0}, //channel 6
-    {1, 1, 1, 0}, //channel 7
-    {0, 0, 0, 1}, //channel 8
-    {1, 0, 0, 1}, //channel 9
-    {0, 1, 0, 1}, //channel 10
-    {1, 1, 0, 1}, //channel 11
-    {0, 0, 1, 1}, //channel 12
-    {1, 0, 1, 1}, //channel 13
-    {0, 1, 1, 1}, //channel 14
-    {1, 1, 1, 1} //channel 15
-  };
-
-  //loop through the 4 sig
-  for (int i = 0; i < 4; i ++) {
-    digitalWrite(controlPin[i], muxChannel[channel][i]);
-  }
-
-  //read the value at the SIG pin
-  int val = analogRead(SIG);
-
-  //return the value
-  return val;
-}
-
-void writeRelePins() {
-  //Отключаем вывод на регистре
-  digitalWrite(latchPin, LOW);
-
-  // проталкиваем байт в регистр
-  shiftOut(dataPin, clockPin, MSBFIRST, ReleStatus);
-
-  // "защелкиваем" регистр, чтобы байт появился на его выходах
-  digitalWrite(latchPin, HIGH);
-}
-
-void toggleRelePin(int id) {
-
-  byte b = bitRead(ReleStatus, id);
-  if (b == 0) {
-    bitWrite(ReleStatus, id, HIGH);
-  } else {
-    bitWrite(ReleStatus, id, LOW);
-  }
-
-  writeRelePins();
-  sendChangesReleStatusToClients(id, b);
-}
-
-void processKey(int id, int val) {
-  id = id + 1;
-  if (val > 500) {
-    bitWrite(KeyStatus, id, HIGH);
-    bitWrite(ReleStatus, id, HIGH);
-    sendChangesReleStatusToClients(id, LOW);
-  } else {
-    if (bitRead(KeyStatus, id)) {
-      bitWrite(ReleStatus, id, LOW);
-      sendChangesReleStatusToClients(id, HIGH);
-    }
-    bitWrite(KeyStatus, id, LOW);
-  }
-}
-
-// сопротивление при 25 градусах по Цельсию
-#define THERMISTORNOMINAL 10000
-// temp. для номинального сопротивления (практически всегда равна 25 C)
-#define TEMPERATURENOMINAL 25
-// бета коэффициент термистора (обычно 3000-4000)
-#define BCOEFFICIENT 3950
-// сопротивление второго резистора
-#define SERIESRESISTOR 10000
-
-//Обработка сигнала терморезистора
-void processTemp(int val) {
-  float average = val;
-  // конвертируем значение в сопротивление
-  average = 1023 / average - 1;
-  average = SERIESRESISTOR / average;
-  float steinhart;
-  steinhart = average / THERMISTORNOMINAL; // (R/Ro)
-  steinhart = log(steinhart); // ln(R/Ro)
-  steinhart /= BCOEFFICIENT; // 1/B * ln(R/Ro)
-  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
-  steinhart = 1.0 / steinhart; // инвертируем
-  steinhart -= 273.15; // конвертируем в градусы по Цельсию
-  Temp1Status = steinhart;
-}
-
-//Обработка сигнала датчика уровня
-void processHeight(int val) {
-  if (val > 500) {
-    HeightStatus = true;
-  } else {
-    HeightStatus = false;
-  }
-}
-
-// Опрос всех подключенных датчиков и присвоение им значений в статусе
-void monitorPins() {
-  for (int i = 0; i < 7; i ++) {
-    if (i <= 4) {
-      //тумблеры
-      processKey(i, readMux(i));
-    } else if (i == 5) {
-      //терморезистор
-      processTemp(readMux(i));
-    } else if (i == 6) {
-      //датчик уровня
-      processHeight(readMux(i));
-    }
-  }
-  writeRelePins();
-  sendUpdatesToClients();
-}
-
-void setupPins()
-{
-  pinMode(latchPin, OUTPUT);
-  writeRelePins();
-
-  pinMode(clockPin, OUTPUT);
-  pinMode(dataPin, OUTPUT);
-  pinMode(SIG, INPUT);
-  pinMode(S0, OUTPUT);
-  pinMode(S1, OUTPUT);
-  pinMode(S2, OUTPUT);
-  pinMode(S3, OUTPUT);
-
-  digitalWrite(S0, LOW);
-  digitalWrite(S1, LOW);
-  digitalWrite(S2, LOW);
-  digitalWrite(S3, LOW);
-}
-
 void waitForConnect()
 {
   bool isLoginGet = false;
@@ -311,12 +129,13 @@ void waitForConnect()
   while (WiFiMulti.run() != WL_CONNECTED) {
     Serial.print(".");
     delay(100);
-    if (millis() - milli > 30000) {
+    if (millis() - milli > 20000) {
       isWifiConnected = false;
       break;
     }
 
     while (Serial.available()) {
+      Serial.println("String get");
       String a = Serial.readString();
       if (!isLoginGet) {
         ssid1 = a;
@@ -334,8 +153,6 @@ void waitForConnect()
 }
 
 void setupSTA() {
-  WiFi.mode(WIFI_STA);
-
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(ssid);
@@ -356,8 +173,7 @@ void setupSTA() {
 
 void setup_AP_STA() {
   WiFi.mode(WIFI_AP_STA);
-  Serial.println();
-  Serial.print("Setting soft-AP ... ");
+  Serial.println("Setting soft-AP ... ");
   boolean result = WiFi.softAP("ESP_Alekseyld", "123456789");
   if (result == true)
   {
@@ -371,6 +187,8 @@ void setup_AP_STA() {
 
 void setup()
 {
+  WiFi.mode(WIFI_STA);
+  
   setupPins();
 
   Serial.begin(115200);
@@ -386,9 +204,13 @@ void setup()
 
   waitForConnect();
 
+  Serial.println();
+
   if (isWifiConnected) {
+    Serial.println("isWifiConnected = true");
     setupSTA();
   } else {
+    Serial.println("isWifiConnected = false");
     setup_AP_STA();
   }
 
@@ -398,6 +220,63 @@ void setup()
 
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+}
+
+void writeRelePins(int id, bool toogle) {
+  int pin = 0;
+  
+  switch (id) {
+    case 0:
+      pin = lightPin;
+      break;
+    case 1:
+      pin = pumpPin;
+      break;
+    case 2:
+      pin = oilpillPin;
+      break;
+    case 3:
+      pin = compressorPin;
+      break;
+  }
+
+  digitalWrite(pin, toogle ? HIGH : LOW);
+}
+
+void toggleRelePin(int id) {
+//  if (id == 0 && lightKeyStatus){
+//     return;
+//  }
+
+  bool toogle = !releStatus[id];
+  
+  releStatus[id] = toogle;
+  writeRelePins(id, toogle);
+  sendChangesReleStatusToClients(id, toogle);
+}
+
+void processLightKey() {
+  lightKeyStatus = analogRead(keyPin) > 500 ? !lightKeyStatus : lightKeyStatus;
+
+  releStatus[0] = lightKeyStatus;
+  digitalWrite(lightPin, lightKeyStatus ? HIGH : LOW);
+  sendChangesReleStatusToClients(0, lightKeyStatus ? HIGH : LOW);
+}
+
+// Опрос всех подключенных датчиков и присвоение им значений в статусе
+void monitorPins() {
+  processLightKey();
+}
+
+void setupPins()
+{
+  pinMode(lightPin, OUTPUT);
+  pinMode(pumpPin, OUTPUT);
+  pinMode(oilpillPin, INPUT);
+  pinMode(compressorPin, OUTPUT);
+  pinMode(keyPin, INPUT);
+
+  processLightKey();
 }
 
 long lastmillis = 0;
